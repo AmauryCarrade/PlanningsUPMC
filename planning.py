@@ -98,14 +98,10 @@ def download_upmc_plannings(verbose=False):
     return plannings
 
 def get_upmc_public(uni, public_code):
-    print(uni, public_code)
     plannings = get_upmc_plannings()
-    print(get_upmc_plannings())
     if uni not in plannings:
         return None
-
     for public in plannings[uni]['publics']:
-        print(public)
         if public['name'] == public_code:
             return public
 
@@ -159,7 +155,6 @@ def get_upmc_ical(uni, public_code, group):
         with open('cache/{}-{}-{}.ical'.format(uni, public_code, group), 'w') as f:
             f.writelines(lines)
     except Exception as e:
-        print('\n\n\n', e)
         pass
 
     return '\n'.join(lines)
