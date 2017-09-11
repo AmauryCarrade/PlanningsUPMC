@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<ul>
+{% for uni, planning in plannings.items() %}
+	<li>
+		<a href="{{ planning['url'] }}">{{ planning['name'] }}</a>
+		<ul>
+			{% for public in planning['publics'] %}
+				<li>
+					<a href="{{ public['url'] }}">{{ public['name'] }}</a>
+					— ical : 
+					{% for group in public['groups'] + ['all'] %}
+						<a href="{{ url_for('ical', uni=uni, public_code=public['name'], group=group) }}">
+							{{- group -}}
+						</a>&nbsp;
+					{% endfor %}
+				</li>
+			{% endfor %}
+		</ul>
+	</li>
+{% endfor %}
+</ul>
+{% endblock %}
