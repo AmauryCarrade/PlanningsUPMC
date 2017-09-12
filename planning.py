@@ -8,7 +8,7 @@ import time
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from flask import Flask, render_template, make_response, abort
-from icalendar import Calendar, Event, vDDDTypes, vRecur, vDuration
+from icalendar import Calendar, Event, vDDDTypes, vRecur, vDuration, vText
 
 
 tz = pytz.timezone('Europe/Paris')
@@ -171,8 +171,8 @@ def get_upmc_ical(uni, public_code, group):
     return ical.decode("utf-8")
 
 def fix_upmc_ical(raw_ical, uni = None, public_code=None, groups=None, remove_groups=True):
-    re_group = re.compile('(\[[0-9a-zA-Z]+\]) (.+)')
-    re_speaker = re.compile('Intervenant :([^-]+)')
+    re_group = re.compile(r'(\[[0-9a-zA-Z]+\]) (.+)')
+    re_speaker = re.compile(r'Intervenant :([^-]+)')
 
     ical = Calendar.from_ical(raw_ical)
 
@@ -228,7 +228,7 @@ def fix_upmc_ical(raw_ical, uni = None, public_code=None, groups=None, remove_gr
         untils = []
         for until in recurrence['until']:  # There can be multiple untils?
             untils.append(tz.localize(until))
-        #recurrence['until'] = untils
+        recurrence['until'] = untils
 
         # Improves title
         title = event['summary']
@@ -251,10 +251,10 @@ def fix_upmc_ical(raw_ical, uni = None, public_code=None, groups=None, remove_gr
             course_type_short += ' '
 
         group = None
-        group_match = re_group.match(title)
+        group_match = re_group.findall(title)
         if group_match:
-            group = group_match.group(1)
-            title = group_match.group(2)
+            group = group_match[0][0]
+            title = group_match[0][1]
 
         title_parts = [part.strip().strip(',') for part in title.split('-')]
         code = name = place = ''
@@ -276,12 +276,12 @@ def fix_upmc_ical(raw_ical, uni = None, public_code=None, groups=None, remove_gr
         event['summary'] = f'{group_title}{course_type_short}{name}' + (f' ({code})' if code != name else '')
 
         # Improves description
-        old_description = event['description']
+        old_description = str(event['description'])
 
         speaker = None
-        speaker_match = re_speaker.match(old_description)
+        speaker_match = re_speaker.findall(old_description)
         if speaker_match:
-            speaker = speaker_match.group(1).strip()
+            speaker = speaker_match[0].strip()
         if not speaker:
             speaker = 'inconnu'
 
