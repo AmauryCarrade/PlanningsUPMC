@@ -1,5 +1,6 @@
 import click
 import json
+import pytz
 import re
 import requests
 import time
@@ -7,11 +8,10 @@ import time
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from flask import Flask, render_template, make_response, abort
-from icalendar import Calendar, Event, vDDDTypes, vRecur
-from pytz import timezone
+from icalendar import Calendar, Event, vDDDTypes, vRecur, vDuration
 
 
-tz = timezone('Europe/Paris')
+tz = pytz.timezone('Europe/Paris')
 
 
 def get_upmc_plannings(force_cache=True, force_update=False, verbose=False):
@@ -126,6 +126,7 @@ def get_upmc_ical(uni, public_code, group):
         pass
 
     groups_all = group == 'all' or group == 'tout'
+    groups = [group]
     if groups_all:
         groups = get_upmc_public(uni, public_code)['groups']
         group = '_'.join(groups) if groups else '0'
@@ -134,7 +135,7 @@ def get_upmc_ical(uni, public_code, group):
     if url in icals and datetime.now() - datetime.fromtimestamp(icals[url]) < timedelta(minutes=30):
         try:
             with open('cache/{}-{}-{}.ical'.format(uni, public_code, group), 'r') as f:
-                return f.read()
+                pass#return f.read()
         except:
             pass
 
@@ -156,7 +157,7 @@ def get_upmc_ical(uni, public_code, group):
     lines = lines_rev[end_index:]
     lines.reverse()
 
-    ical = fix_upmc_ical('\n'.join(lines), remove_groups=not groups_all)
+    ical = fix_upmc_ical('\n'.join(lines), uni=uni, public_code=public_code, groups=groups, remove_groups=not groups_all)
 
     icals[url] = int(time.time())
     try:
@@ -169,26 +170,65 @@ def get_upmc_ical(uni, public_code, group):
 
     return ical.decode("utf-8")
 
-def fix_upmc_ical(raw_ical, remove_groups=True):
+def fix_upmc_ical(raw_ical, uni = None, public_code=None, groups=None, remove_groups=True):
     re_group = re.compile('(\[[0-9a-zA-Z]+\]) (.+)')
     re_speaker = re.compile('Intervenant :([^-]+)')
 
     ical = Calendar.from_ical(raw_ical)
+
+    calendar_url = None
+    if uni and public_code:
+        calendar_url = get_upmc_public(uni, public_code)['url']
+
+    calendar_title = 'Calendrier de l\'UPMC'
+    if public_code:
+        calendar_title += f' pour l\'UE {public_code}'
+    if groups:
+        calendar_title += f' (groupe{"s" if len(groups) > 1 else ""} {", ".join(groups)})'
+
+    calendar_desc = 'Calendrier de l\'UPMC'
+    if public_code:
+        calendar_desc += f' pour l\'UE {public_code}'
+    if groups:
+        calendar_desc += f'\nGroupe{"s" if len(groups) > 1 else ""} {", ".join(groups)}'
+    if uni and public_code:
+        public = get_upmc_public(uni, public_code)
+        calendar_desc += f'\n\nRetrouvez ce calendrier sur le site de l\'UPMC : \n{calendar_url}'
+
+    refresh_interval = vDuration(timedelta(hours=6))
+
+    # Theses ones are in draft but not official yet so they don't validate
+    #ical['NAME'] = calendar_title
+    #ical['DESCRIPTION'] = calendar_desc
+    #ical['URL'] = calendar_url
+
+    # Compatibility
+    ical['X-WR-CALNAME'] = calendar_title
+    ical['X-WR-CALDESC'] = calendar_desc
+    ical['X-WR-TIMEZONE'] = 'Europe/Paris'
+    ical['X-PUBLISHED-TTL'] = refresh_interval
+
+    ical['CALSCALE'] = 'GREGORIAN'
+
     for event in ical.subcomponents:
         if type(event) is not Event:
             continue
 
         # Fix date (adds timezones)
-        for key_date in ['dtstart', 'dtend', 'dtstamp']:
+        for key_date in ['dtstart', 'dtend']:
             tz_aware_date = tz.localize(vDDDTypes.from_ical(event[key_date]))
             event[key_date] = vDDDTypes(tz_aware_date)
+
+        tz_aware_dtstamp = tz.localize(vDDDTypes.from_ical(event['dtstamp']))
+        event['dtstamp'] = vDDDTypes(tz_aware_dtstamp.astimezone(pytz.utc))
+
 
         # Fix recurrences (adds timezones, too)
         recurrence = vRecur.from_ical(event['rrule'])
         untils = []
         for until in recurrence['until']:  # There can be multiple untils?
             untils.append(tz.localize(until))
-        recurrence['until'] = untils
+        #recurrence['until'] = untils
 
         # Improves title
         title = event['summary']
