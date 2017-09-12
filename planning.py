@@ -190,7 +190,7 @@ def fix_upmc_ical(raw_ical, uni = None, public_code=None, groups=None, remove_gr
     if public_code:
         calendar_desc += f' pour l\'UE {public_code}'
     if groups:
-        calendar_desc += f'\nGroupe{"s" if len(groups) > 1 else ""} {", ".join(groups)}'
+        calendar_desc += f' ; groupe{"s" if len(groups) > 1 else ""} {", ".join(groups)}.'
     if uni and public_code:
         public = get_upmc_public(uni, public_code)
         calendar_desc += f'\n\nRetrouvez ce calendrier sur le site de l\'UPMC : \n{calendar_url}'
