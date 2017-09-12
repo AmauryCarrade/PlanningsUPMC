@@ -1,11 +1,17 @@
 import click
 import json
+import re
 import requests
 import time
 
+from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from flask import Flask, render_template, make_response, abort
-from bs4 import BeautifulSoup
+from icalendar import Calendar, Event, vDDDTypes, vRecur
+from pytz import timezone
+
+
+tz = timezone('Europe/Paris')
 
 
 def get_upmc_plannings(force_cache=True, force_update=False, verbose=False):
@@ -69,6 +75,7 @@ def download_upmc_plannings(verbose=False):
                 r = requests.get(url_jsoncal)
                 r.raise_for_status()
 
+                # Because it's a jsonp call there is parenthesis around the JSON value
                 jsoncal = json.loads(r.text.strip('(').strip(')'))
 
                 for event in jsoncal:
@@ -118,12 +125,13 @@ def get_upmc_ical(uni, public_code, group):
     except:
         pass
 
-    if group == 'all' or group == 'tout':
+    groups_all = group == 'all' or group == 'tout'
+    if groups_all:
         groups = get_upmc_public(uni, public_code)['groups']
         group = '_'.join(groups) if groups else '0'
 
     url = 'http://planning.upmc.fr/ical/{}/{}/{}'.format(uni, public_code, group)
-    if url in icals and datetime.now() - datetime.fromtimestamp(icals[url]) < timedelta(days=1):
+    if url in icals and datetime.now() - datetime.fromtimestamp(icals[url]) < timedelta(minutes=30):
         try:
             with open('cache/{}-{}-{}.ical'.format(uni, public_code, group), 'r') as f:
                 return f.read()
@@ -148,19 +156,106 @@ def get_upmc_ical(uni, public_code, group):
     lines = lines_rev[end_index:]
     lines.reverse()
 
+    ical = fix_upmc_ical('\n'.join(lines), remove_groups=not groups_all)
+
     icals[url] = int(time.time())
     try:
         with open('cache/upmc_icals.json', 'w') as f:
             json.dump(icals, f)
-        with open('cache/{}-{}-{}.ical'.format(uni, public_code, group), 'w') as f:
-            f.writelines(lines)
+        with open('cache/{}-{}-{}.ical'.format(uni, public_code, group), 'wb') as f:
+            f.write(ical)
     except Exception as e:
-        pass
+        raise e
 
-    return '\n'.join(lines)
+    return ical.decode("utf-8")
+
+def fix_upmc_ical(raw_ical, remove_groups=True):
+    re_group = re.compile('(\[[0-9a-zA-Z]+\]) (.+)')
+    re_speaker = re.compile('Intervenant :([^-]+)')
+
+    ical = Calendar.from_ical(raw_ical)
+    for event in ical.subcomponents:
+        if type(event) is not Event:
+            continue
+
+        # Fix date (adds timezones)
+        for key_date in ['dtstart', 'dtend', 'dtstamp']:
+            tz_aware_date = tz.localize(vDDDTypes.from_ical(event[key_date]))
+            event[key_date] = vDDDTypes(tz_aware_date)
+
+        # Fix recurrences (adds timezones, too)
+        recurrence = vRecur.from_ical(event['rrule'])
+        untils = []
+        for until in recurrence['until']:  # There can be multiple untils?
+            untils.append(tz.localize(until))
+        recurrence['until'] = untils
+
+        # Improves title
+        title = event['summary']
+
+        course_type = course_type_short = ''
+        if 'categories' in event:
+            course_type_raw = event['categories'].strip().upper()
+            if course_type_raw == 'CM':
+                course_type = 'Cours magistral'
+                course_type_short = ''
+            elif course_type_raw == 'TD':
+                course_type = 'Travaux dirigés'
+                course_type_short = 'TD'
+            else:
+                course_type = course_type_short = course_type_raw
+
+        if course_type_short:
+            course_type_short += ' '
+
+        group = None
+        group_match = re_group.match(title)
+        if group_match:
+            group = group_match.group(1)
+            title = group_match.group(2)
+
+        title_parts = [part.strip().strip(',') for part in title.split('-')]
+        code = name = place = ''
+        if len(title_parts) > 0:
+            code = title_parts[0]
+            if len(title_parts) == 2:
+                name = title_parts[0]
+                place = title_parts[1]
+            else:
+                name = title_parts[1]
+                place = title_parts[2]
+
+        if ':' in place:
+            place = ':'.join(place.split(':')[1:]).strip()
+
+        if remove_groups or group is None: group_title = ''
+        else: group_title = group + ' '
+
+        event['summary'] = f'{group_title}{course_type_short}{name}' + (f' ({code})' if code != name else '')
+
+        # Improves description
+        old_description = event['description']
+
+        speaker = None
+        speaker_match = re_speaker.match(old_description)
+        if speaker_match:
+            speaker = speaker_match.group(1).strip()
+        if not speaker:
+            speaker = 'inconnu'
+
+        description = f'{course_type} : {name} ({code})'
+        if group:
+            description += f'\nGroupe : {group.strip().replace("[", "").replace("]", "")}'
+        description += f'\n\nIntervenant : {speaker}'
+        description += f'\n\nSalle : {place}'
+
+        event['description'] = description
+
+    return ical.to_ical()
 
 
 app = Flask(__name__)
+
 
 @app.cli.command()
 @click.option('--force', is_flag=True)
