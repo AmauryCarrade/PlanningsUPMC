@@ -242,6 +242,8 @@ def fix_upmc_ical(raw_ical, uni = None, public_code=None, groups=None, remove_gr
             elif course_type_raw == 'TD':
                 course_type = 'Travaux dirigés'
                 course_type_short = 'TD'
+            elif course_type_raw == 'AUTRE':
+                course_type = course_type_short = ''
             else:
                 course_type = course_type_short = course_type_raw
 
@@ -283,7 +285,7 @@ def fix_upmc_ical(raw_ical, uni = None, public_code=None, groups=None, remove_gr
         if not speaker:
             speaker = 'inconnu'
 
-        description = f'{course_type} : {name} ({code})'
+        description = f'{course_type}{" : " if course_type else ""}{name} ({code})'
         if group:
             description += f'\nGroupe : {group.strip().replace("[", "").replace("]", "")}'
         description += f'\n\nIntervenant : {speaker}'
