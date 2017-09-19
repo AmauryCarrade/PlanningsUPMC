@@ -130,12 +130,14 @@ def get_upmc_ical(uni, public_code, group):
     if groups_all:
         groups = get_upmc_public(uni, public_code)['groups']
         group = '_'.join(groups) if groups else '0'
+    else:
+        group = '0_' + group
 
     url = 'http://planning.upmc.fr/ical/{}/{}/{}'.format(uni, public_code, group)
     if url in icals and datetime.now() - datetime.fromtimestamp(icals[url]) < timedelta(minutes=30):
         try:
             with open('cache/{}-{}-{}.ical'.format(uni, public_code, group), 'r') as f:
-                pass#return f.read()
+                return f.read()
         except:
             pass
 
